@@ -4,11 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**Park It!** — a top-down parking mini-game. Pure client-side HTML5 Canvas 2D, no runtime dependencies. Bundled with Vite:
+**Park It!** — a top-down parking mini-game. Pure client-side HTML5 Canvas 2D, no runtime dependencies. Bundled with Vite. `index.html` (repo root) is Vite's entry: the `<canvas id="game" width="960" height="600">`, the HUD bar, and `<script type="module" src="/src/main.js">`.
 
-- `index.html` — DOM shell at the repo root (Vite's entry): the `<canvas id="game" width="960" height="600">`, the HUD bar, and `<script type="module" src="/src/main.js">`.
-- `src/main.js` — the entire game (~1100 lines), an ES module that `import`s its CSS.
-- `src/style.css` — page chrome, HUD, and the night-city CSS background (inline SVG data URIs).
+`src/` is split into single-responsibility ES modules:
+
+- `main.js` — entry: the rAF loop, input handlers, `startRun`/`initSound`. Imports `style.css`.
+- `canvas.js` — `cvs`, `ctx`, `W`, `H` (the shared 2D context and fixed dimensions).
+- `state.js` — the global `G` state object, `car`, and the mutable level arrays (`slots`/`obstacles`/`movers`/`level.target`).
+- `config.js` — tuning data and constants: `CHARACTERS`, `DIFF`, `MSG`, `PALETTE`, fonts, car/physics constants.
+- `sprites.js` — inline SVG sprites → `Image` objects, HUD avatars, sound icons.
+- `util.js` — `rand`, `pick`, `rectCorners`.
+- `geometry.js` — OBB/SAT collision (`corners`, `obbHit`, `insideSlot`, `circleHitsCar`).
+- `level.js` — `makePlan`, the three layout builders, `buildLevel`.
+- `movers.js` — spawn/update of grannies, carts, traffic.
+- `simulation.js` — `updatePlay` (the per-frame game logic), `crash`, `calcStars`.
+- `audio.js` — WebAudio synthesis, `sfx`, engine sound, mute.
+- `render.js` — all `draw*` functions, `overlay`, `roundRect`, `syncHUD`.
 
 Everything is inline: SVG sprites are data URIs decoded into `Image` objects, all sound is synthesized at runtime via WebAudio, fonts come from Google Fonts. No assets directory, no network calls at play time.
 
@@ -61,6 +72,6 @@ Lazily-created `AudioContext` (resumed on first Enter/click to satisfy autoplay 
 
 ## Conventions that matter
 
-- **`src/main.js` is currently one big module.** Top-level `const`/`let` are module-scoped and shared across all functions — there is not yet any internal import/export structure (a module split is planned). The level arrays (`slots`, `obstacles`, `movers`, `targetSlot`) are *reassigned* in `buildLevel` but pushed to from several functions — keep that in mind when splitting into files (a shared mutable holder avoids ES live-binding issues).
+- **Shared mutable state crosses module boundaries via in-place mutation, not reassignment.** `G`, `car`, and the `slots`/`obstacles`/`movers` arrays are exported once from `state.js` and never reassigned — `buildLevel` clears the arrays with `.length = 0` so every importer keeps a live reference. The one reassignable level reference lives on the `level` object as `level.target` (do **not** reintroduce a bare `let targetSlot`, which can't be reassigned across modules under ES live bindings).
 - The canvas is a **fixed 960×600 internal resolution**; click coordinates are scaled back from the displayed size (`W/r.width`) in the click handler. Don't hardcode pixel positions assuming the CSS size.
 - New game mechanics generally touch four places in concert: `makePlan` (when it appears), a layout/spawn builder (geometry), `updatePlay` (rules/collision), and a `draw*` (visuals). The rejection-sampling in `buildLevel` is what keeps generated levels solvable — preserve it when adding obstacles.
