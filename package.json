@@ -1,0 +1,15 @@
+{
+  "name": "park-it",
+  "version": "1.0.0",
+  "description": "Park It! — a top-down parking mini-game (HTML5 Canvas).",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

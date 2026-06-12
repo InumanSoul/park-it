@@ -1,4 +1,5 @@
-'use strict';
+import './style.css';
+
 const cvs = document.getElementById('game');
 const ctx = cvs.getContext('2d');
 const W = cvs.width, H = cvs.height;
