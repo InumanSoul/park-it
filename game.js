@@ -29,8 +29,12 @@ const G = {
 };
 
 const CHARACTERS = [
-  { id:'normal', img:'male',   name:'MALE',   sub:'Normal — forgiving steering' },
-  { id:'hard',   img:'female', name:'FEMALE', sub:'Hard — twitchy steering, tight slots, less time' },
+  { id:'normal', img:'male',   name:'MALE',   licName:'BOB',
+    diffLabel:'NORMAL', diffColor:'#56b06b',
+    sub:'Forgiving steering, roomier slots, more time.' },
+  { id:'hard',   img:'female', name:'FEMALE', licName:'LIZ',
+    diffLabel:'HARD', diffColor:'#ff5555',
+    sub:'Twitchy steering, tight slots, less time.' },
 ];
 
 // ---------- SVG sprites (inline, no external files) ----------
@@ -324,7 +328,10 @@ function buildLevel(){
     });
   }
 
-  // lane obstacles, rejection-sampled
+  // movers FIRST so their paths are guaranteed; static lane cars fit around them
+  spawnMovers(lvl);
+
+  // lane obstacles, rejection-sampled against everything incl. mover paths
   const laneObs = Math.min(Math.max(0, lvl-2), 5);
   const t = targetSlot;
   const corridor = corners(
@@ -333,6 +340,8 @@ function buildLevel(){
     t.outward, 240, t.w + 80
   );
   const spawnZone = rectCorners(0, H/2 - 95, 240, 190);
+  const horizPaths = movers.filter(m => m.type==='cart' || m.type==='traffic');
+  const grannyPaths = movers.filter(m => m.type==='granny');
   const laneH = G.laneBottom - G.laneTop;
   if (laneH > CAR_W + 110){
     for (let i=0;i<laneObs;i++){
@@ -343,13 +352,13 @@ function buildLevel(){
         const oc = corners(ox, oy, oa, CAR_LEN+18, CAR_W+18);
         if (obbHit(oc, corridor) || obbHit(oc, spawnZone)) continue;
         if (obstacles.some(o => obbHit(oc, corners(o.x,o.y,o.a,o.len+18,o.w+18)))) continue;
+        if (!horizPaths.every(m => Math.abs(m.y - oy) > 56)) continue;
+        if (!grannyPaths.every(m => Math.abs(m.baseX - ox) > 92)) continue;
         obstacles.push({ x:ox, y:oy, a:oa, len:CAR_LEN, w:CAR_W, color:pick(PALETTE) });
         break;
       }
     }
   }
-
-  spawnMovers(lvl);
 
   // player spawn
   car.x = 90; car.y = H/2; car.a = 0; car.v = 0; car.steer = 0;
@@ -371,43 +380,79 @@ function buildLevel(){
 }
 
 // ---------- Movers ----------
-function clearLaneY(margin){
+// horizontal corridor (y) clear of lane obstacles AND other movers' corridors
+function clearLaneY(margin, usedY){
   const laneObsList = obstacles.filter(o => o.y > G.laneTop && o.y < G.laneBottom);
-  for (let tries=0; tries<20; tries++){
-    const y = rand(G.laneTop + 45, G.laneBottom - 45);
-    if (laneObsList.every(o => Math.abs(o.y - y) > margin)) return y;
+  for (let tries=0; tries<40; tries++){
+    const y = rand(G.laneTop + 40, G.laneBottom - 40);
+    if (!laneObsList.every(o => Math.abs(o.y - y) > margin)) continue;
+    if (!usedY.every(u => Math.abs(u - y) > 52)) continue;
+    return y;
+  }
+  return null;
+}
+// vertical walking line (x) clear of lane obstacles (incl. granny sway) and other grannies
+function grannyX(usedX){
+  const laneObsList = obstacles.filter(o => o.y > G.laneTop && o.y < G.laneBottom);
+  for (let tries=0; tries<25; tries++){
+    const x = rand(W*0.3, W*0.9);
+    if (!laneObsList.every(o => Math.abs(o.x - x) > 90)) continue;
+    if (!usedX.every(u => Math.abs(u - x) > 90)) continue;
+    return x;
   }
   return null;
 }
 function spawnMovers(lvl){
-  if (lvl >= 2) movers.push({ type:'granny', x:rand(W*0.3, W*0.85), y:G.laneTop - 18, vy: 16 + lvl, wait:rand(1,3), wob:0 });
-  if (lvl >= 9) movers.push({ type:'granny', x:rand(W*0.3, W*0.85), y:G.laneBottom + 18, vy:-(16 + lvl), wait:rand(2,5), wob:0 });
-  if (lvl >= 3){ const y = clearLaneY(55); if (y!==null) movers.push(makeCart(y, lvl)); }
-  if (lvl >= 8){ const y = clearLaneY(55); if (y!==null) movers.push(makeCart(y, lvl)); }
-  if (lvl >= 5){ const y = clearLaneY(62); if (y!==null) movers.push({ type:'traffic', x:W*0.55, y, vx: 85 + lvl*3, a:0, color:'#d8b62e' }); }
-  if (lvl >= 11){ const y = clearLaneY(62); if (y!==null) movers.push({ type:'traffic', x:W*0.9, y, vx:-(80 + lvl*3), a:Math.PI, color:'#cccfd6' }); }
+  const usedY = [], usedX = [];
+  const addGranny = (fromTop, waitMin, waitMax) => {
+    const x = grannyX(usedX); if (x === null) return;
+    usedX.push(x);
+    movers.push({
+      type:'granny', baseX:x, x,
+      y: fromTop ? G.laneTop + 8 : G.laneBottom - 8,
+      vy: (fromTop ? 1 : -1) * (16 + lvl),
+      wait: rand(waitMin, waitMax), pauseT: 0, wob: 0,
+    });
+  };
+  if (lvl >= 2) addGranny(true, 1, 3);
+  if (lvl >= 9) addGranny(false, 2, 5);
+  if (lvl >= 3){ const y = clearLaneY(55, usedY); if (y!==null){ usedY.push(y); movers.push(makeCart(y, lvl)); } }
+  if (lvl >= 8){ const y = clearLaneY(55, usedY); if (y!==null){ usedY.push(y); movers.push(makeCart(y, lvl)); } }
+  if (lvl >= 5){ const y = clearLaneY(62, usedY); if (y!==null){ usedY.push(y); movers.push({ type:'traffic', x:W*0.55, y, vx: 85 + lvl*3, a:0, color:'#d8b62e' }); } }
+  if (lvl >= 11){ const y = clearLaneY(62, usedY); if (y!==null){ usedY.push(y); movers.push({ type:'traffic', x:W*0.9, y, vx:-(80 + lvl*3), a:Math.PI, color:'#cccfd6' }); } }
 }
 function makeCart(y, lvl){
   const dir = pick([1,-1]);
-  return { type:'cart', x: dir>0 ? -30 : W+30, y, vx: dir*rand(60, 75+lvl*3), wait:rand(0,3), wob:0 };
+  return { type:'cart', x: dir>0 ? -30 : W+30, y, vx: dir*rand(60, 75+lvl*3), wait:rand(0,3) };
 }
 function updateMovers(dt){
   for (const m of movers){
     if (m.type === 'granny'){
+      // meandering: sways side to side, randomly stops to look around
       if (m.wait > 0){ m.wait -= dt; continue; }
       m.wob += dt;
-      m.y += m.vy * dt;
-      if ((m.vy > 0 && m.y > G.laneBottom + 18) || (m.vy < 0 && m.y < G.laneTop - 18)){
-        m.vy *= -1; m.wait = rand(2,6); m.x = rand(W*0.25, W*0.9);
+      if (m.pauseT > 0){
+        m.pauseT -= dt;
+      } else {
+        m.y += m.vy * dt;
+        m.x = m.baseX + Math.sin(m.wob * 1.6) * 20;
+        if (Math.random() < dt * 0.2) m.pauseT = rand(0.5, 1.5);
+      }
+      if ((m.vy > 0 && m.y > G.laneBottom - 8) || (m.vy < 0 && m.y < G.laneTop + 8)){
+        m.vy *= -1; m.wait = rand(2,6);
+        const others = movers.filter(o => o !== m && o.type==='granny').map(o => o.baseX);
+        const nx = grannyX(others);
+        if (nx !== null){ m.baseX = nx; m.x = nx; }
       }
     } else if (m.type === 'cart'){
+      // runaway cart: dead straight, constant speed
       if (m.wait > 0){ m.wait -= dt; continue; }
-      m.wob += dt;
       m.x += m.vx * dt;
       if (m.x > W+40 || m.x < -40){
         m.wait = rand(1.5, 4);
         m.x = m.vx > 0 ? -30 : W + 30;
-        const y = clearLaneY(55); if (y !== null) m.y = y;
+        const usedY = movers.filter(o => o !== m && (o.type==='cart' || o.type==='traffic')).map(o => o.y);
+        const y = clearLaneY(55, usedY); if (y !== null) m.y = y;
       }
     } else { // traffic
       m.x += m.vx * dt;
@@ -534,7 +579,8 @@ function updatePlay(dt){
   // parking
   const t = targetSlot;
   const inside = insideSlot(t, cc, 3);
-  const orientOk = !G.plan.reverseIn || Math.cos(car.a - t.outward) > 0.5;
+  // back-in levels: nose must point out of the slot (toward the lane), within ±45°
+  const orientOk = !G.plan.reverseIn || Math.cos(car.a - t.outward) > 0.7;
   if (inside && Math.abs(car.v) < 4){
     if (orientOk){
       G.parkHold += dt;
@@ -611,7 +657,20 @@ function drawSlot(s){
     ctx.font = `22px ${FD}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('P', 0, 0);
+    const rev = G.plan && G.plan.reverseIn;
+    if (rev){
+      // P at the back; arrow shows required NOSE direction (out toward the lane)
+      ctx.fillText('P', -s.len*0.30, 0);
+      const x0 = -s.len*0.08, x1 = s.len*0.26;
+      ctx.strokeStyle = '#56b06b';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(x1, 0); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x1 + 11, 0); ctx.lineTo(x1 - 2, -8); ctx.lineTo(x1 - 2, 8);
+      ctx.closePath(); ctx.fill();
+    } else {
+      ctx.fillText('P', 0, 0);
+    }
     ctx.textBaseline = 'alphabetic';
   } else {
     ctx.strokeStyle = 'rgba(255,255,255,0.45)';
@@ -658,15 +717,18 @@ function drawMover(m){
   ctx.translate(m.x, m.y);
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
   ctx.beginPath(); ctx.ellipse(3, 4, 14, 11, 0, 0, 7); ctx.fill();
-  // face direction of travel ("forward" in the sprite is up), with a walk/roll wobble
-  const heading = m.type === 'granny'
-    ? (m.vy > 0 ? Math.PI : 0)
-    : (m.vx > 0 ? Math.PI/2 : -Math.PI/2);
-  ctx.rotate(heading + Math.sin(m.wob*8) * 0.09);
   if (m.type === 'granny'){
+    // waddles, leans into her sway, pauses to look around
+    const walking = m.wait <= 0 && m.pauseT <= 0;
+    const heading = m.vy > 0 ? Math.PI : 0;
+    const sway = walking ? Math.cos(m.wob * 1.6) * 0.22 : 0;
+    const waddle = walking ? Math.sin(m.wob * 9) * 0.1 : Math.sin(m.wob * 2) * 0.04;
+    ctx.rotate(heading + sway + waddle);
     if (spriteReady('granny')) ctx.drawImage(IMG.granny, -21, -21, 42, 42);
     else { ctx.fillStyle = '#cfd2d8'; ctx.beginPath(); ctx.arc(0,0,12,0,7); ctx.fill(); }
   } else {
+    // runaway cart: rigid, dead-straight roll
+    ctx.rotate(m.vx > 0 ? Math.PI/2 : -Math.PI/2);
     if (spriteReady('cart')) ctx.drawImage(IMG.cart, -19, -23, 38, 46);
     else { ctx.fillStyle = '#aab2c0'; ctx.fillRect(-12,-15,24,30); }
   }
@@ -839,32 +901,92 @@ function drawTitle(tSec){
   ctx.fillText('PRESS ENTER TO START', W/2, 560);
 }
 
+function drawLicense(lx, ly, lw, lh, c){
+  // card body
+  ctx.fillStyle = '#e9e5d8';
+  roundRect(lx, ly, lw, lh, 10); ctx.fill();
+  ctx.strokeStyle = '#b8b2a0'; ctx.lineWidth = 1.5;
+  roundRect(lx, ly, lw, lh, 10); ctx.stroke();
+  // header band
+  ctx.fillStyle = '#3a5a8c';
+  ctx.beginPath();
+  ctx.moveTo(lx+10, ly);
+  ctx.arcTo(lx+lw, ly, lx+lw, ly+30, 10);
+  ctx.lineTo(lx+lw, ly+30); ctx.lineTo(lx, ly+30);
+  ctx.arcTo(lx, ly, lx+10, ly, 10);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = `800 13px ${FB}`;
+  ctx.textAlign = 'center';
+  ctx.fillText('DRIVER  LICENSE', lx + lw/2, ly + 20);
+  // photo box
+  const px = lx + 12, py = ly + 40, pw2 = 72, ph2 = 96;
+  ctx.fillStyle = '#cfd6de';
+  ctx.fillRect(px, py, pw2, ph2);
+  ctx.strokeStyle = '#9aa4b0'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(px, py, pw2, ph2);
+  if (spriteReady(c.img)) ctx.drawImage(IMG[c.img], px+3, py+4, 66, 88);
+  // info lines
+  const ix = px + pw2 + 14;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#2a2d35';
+  ctx.font = `800 14px ${FB}`;
+  ctx.fillText('NAME: ' + c.licName, ix, py + 18);
+  ctx.font = `700 12px ${FB}`;
+  ctx.fillStyle = '#4a4f5c';
+  ctx.fillText('CLASS: B', ix, py + 40);
+  ctx.fillText('EXPIRES: NEVER', ix, py + 58);
+  ctx.fillText('POINTS: 0 / 12', ix, py + 76);
+  // signature squiggle
+  ctx.strokeStyle = '#2a2d35'; ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(ix, py + 92);
+  ctx.bezierCurveTo(ix+14, py+82, ix+22, py+100, ix+36, py+90);
+  ctx.bezierCurveTo(ix+48, py+82, ix+58, py+94, ix+72, py+88);
+  ctx.stroke();
+  // barcode
+  ctx.fillStyle = '#2a2d35';
+  let bx = lx + lw - 74;
+  for (let i=0;i<22;i++){
+    const bw = (i*7)%3 === 0 ? 2.6 : 1.2;
+    ctx.fillRect(bx, ly + lh - 22, bw, 14);
+    bx += bw + 1.6;
+  }
+}
+
 function drawMenu(){
   ctx.fillStyle = '#1f232d';
   ctx.fillRect(0,0,W,H);
   ctx.textAlign = 'center';
   ctx.fillStyle = '#e8eaf0';
   ctx.font = `32px ${FD}`;
-  ctx.fillText('CHOOSE YOUR DRIVER', W/2, 90);
+  ctx.fillText('CHOOSE YOUR DRIVER', W/2, 80);
   ctx.font = `700 16px ${FB}`;
   ctx.fillStyle = '#8a90a0';
-  ctx.fillText('← →  to select   •   Enter to start   •   Esc to go back', W/2, 125);
+  ctx.fillText('← →  to select   •   Enter to start   •   Esc to go back', W/2, 112);
 
   CHARACTERS.forEach((c, i) => {
-    const cw = 300, ch = 320;
-    const cx = W/2 + (i===0 ? -cw-30 : 30);
-    const cy = 170;
+    const cw = 330, ch = 372;
+    const cx = W/2 + (i===0 ? -cw-28 : 28);
+    const cy = 145;
     const sel = G.menuIndex === i;
     ctx.fillStyle = sel ? '#2e3545' : '#252a35';
     roundRect(cx, cy, cw, ch, 16); ctx.fill();
-    if (sel){ ctx.strokeStyle = '#ffb02e'; ctx.lineWidth = 3; ctx.stroke(); }
-    if (spriteReady(c.img)) ctx.drawImage(IMG[c.img], cx+cw/2-54, cy+22, 108, 144);
-    ctx.font = `24px ${FD}`;
+    if (sel){ ctx.strokeStyle = '#ffb02e'; ctx.lineWidth = 3; roundRect(cx, cy, cw, ch, 16); ctx.stroke(); }
+
+    drawLicense(cx + 25, cy + 22, cw - 50, 158, c);
+
+    ctx.textAlign = 'center';
+    ctx.font = `18px ${FD}`;
     ctx.fillStyle = sel ? '#ffb02e' : '#e8eaf0';
-    ctx.fillText(c.name, cx+cw/2, cy+205);
+    ctx.fillText(c.name, cx + cw/2, cy + 222);
+    // difficulty on its own prominent line
+    ctx.font = `34px ${FD}`;
+    ctx.fillStyle = c.diffColor;
+    ctx.fillText(c.diffLabel, cx + cw/2, cy + 268);
     ctx.font = `700 14px ${FB}`;
     ctx.fillStyle = '#a8aec0';
-    wrapText(c.sub, cx+cw/2, cy+240, cw-40, 20);
+    wrapText(c.sub, cx + cw/2, cy + 300, cw - 50, 20);
   });
 }
 
