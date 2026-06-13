@@ -1,12 +1,13 @@
 import './style.css';
 import { cvs, ctx, W, H } from './canvas.js';
 import { G, car, obstacles, movers } from './state.js';
-import { CAR_LEN, CAR_W, FD, FB, CHARACTERS } from './config.js';
+import { CAR_LEN, CAR_W, FD, FB, CHARACTERS, MAX_LIVES } from './config.js';
 import { ICON_SND_ON, ICON_SND_OFF } from './sprites.js';
 import { buildLevel } from './level.js';
 import { updatePlay } from './simulation.js';
-import { drawTitle, drawMenu, drawLot, drawCar, drawMover, drawNight, overlay, syncHUD } from './render.js';
+import { drawTitle, drawMenu, drawLot, drawCar, drawMover, drawNight, overlay, drawLeaderboard, syncHUD } from './render.js';
 import { ac, setMuted, sfx, engineUpdate } from './audio.js';
+import { getNick, setNick, fetchTop, submitScore } from './leaderboard.js';
 
 // ---------- Main loop ----------
 let last = performance.now();
@@ -19,6 +20,8 @@ function frame(now){
     drawTitle(tSec);
   } else if (G.scene === 'menu'){
     drawMenu();
+  } else if (G.scene === 'leaderboard'){
+    drawLeaderboard();
   } else {
     if (G.scene === 'play') updatePlay(dt);
     drawLot();
@@ -53,26 +56,64 @@ function frame(now){
       ctx.fillText(G.banner.text, W/2, H/2 - 94);
     }
 
-    if (G.scene === 'crashed') overlay('CRASHED!', '#ff5555', [G.failMsg], 'R / ENTER — RETRY');
-    if (G.scene === 'timeup')  overlay("TIME'S UP!", '#ffb02e', [G.failMsg], 'R / ENTER — RETRY');
+    if (G.scene === 'crashed') overlay('CRASHED!', '#ff5555', [G.failMsg, `${G.lives} ♥ remaining`], 'ENTER — RETRY');
+    if (G.scene === 'timeup')  overlay("TIME'S UP!", '#ffb02e', [G.failMsg, `${G.lives} ♥ remaining`], 'ENTER — RETRY');
     if (G.scene === 'parked')  overlay('★'.repeat(G.stars) + '☆'.repeat(3-G.stars), '#56b06b',
         [G.winMsg], 'ENTER — NEXT LEVEL');
+    if (G.scene === 'gameover'){
+      overlay('GAME OVER', '#ff5555', [`Reached Level ${G.level}  ·  ${G.totalStars}★`], null);
+      if (document.getElementById('nameModal').classList.contains('hidden')) showNameModal();
+    }
   }
   engineUpdate();
   syncHUD();
   requestAnimationFrame(frame);
 }
 
-// ---------- Input ----------
+// ---------- Run / leaderboard flow ----------
 function startRun(){
   G.difficulty = CHARACTERS[G.menuIndex].id;
-  G.level = 1; G.crashes = 0; G.totalStars = 0; G.plan = null;
+  G.level = 1; G.crashes = 0; G.lives = MAX_LIVES; G.totalStars = 0; G.plan = null;
   buildLevel();
   G.scene = 'play';
   const a = ac(); if (a && a.resume) a.resume();
 }
 
+async function loadBoard(mode){
+  G.boardMode = mode;
+  G.boardLoading = true;
+  G.board = [];
+  const rows = await fetchTop(mode, 10);
+  if (G.boardMode === mode){ G.board = rows; G.boardLoading = false; }
+}
+
+function openBoard(mode){
+  G.scene = 'leaderboard';
+  loadBoard(mode);
+}
+
+async function postScore(nick){
+  G.scene = 'leaderboard';
+  G.boardMode = G.difficulty || 'normal';
+  G.boardLoading = true; G.board = [];
+  await submitScore({ nickname: nick, level: G.level, stars: G.totalStars, difficulty: G.difficulty });
+  const rows = await fetchTop(G.boardMode, 10);
+  G.board = rows; G.boardLoading = false;
+}
+
+function showNameModal(){
+  const modal = document.getElementById('nameModal');
+  const input = document.getElementById('nameInput');
+  input.value = getNick();
+  modal.classList.remove('hidden');
+  input.focus(); input.select();
+}
+
+// ---------- Input ----------
 window.addEventListener('keydown', e => {
+  // while the nickname modal is open, let the form own the keyboard
+  if (!document.getElementById('nameModal').classList.contains('hidden')) return;
+
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
   G.keys[e.key] = true;
 
@@ -81,12 +122,19 @@ window.addEventListener('keydown', e => {
 
   if (G.scene === 'title'){
     if (e.key === 'Enter'){ G.scene = 'menu'; const a = ac(); if (a && a.resume) a.resume(); }
+    else if (e.key === 'l' || e.key === 'L') openBoard('normal');
     return;
   }
   if (G.scene === 'menu'){
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') G.menuIndex = 1 - G.menuIndex;
     if (e.key === 'Enter') startRun();
     if (e.key === 'Escape') G.scene = 'title';
+    return;
+  }
+  if (G.scene === 'leaderboard'){
+    if (e.key === 'Enter'){ if (G.difficulty) startRun(); else G.scene = 'menu'; }
+    else if (e.key === 'Tab'){ e.preventDefault(); loadBoard(G.boardMode === 'normal' ? 'hard' : 'normal'); }
+    else if (e.key === 'Escape') G.scene = 'title';
     return;
   }
   if (e.key === 'r' || e.key === 'R'){ buildLevel(); G.scene = 'play'; return; }
@@ -106,6 +154,21 @@ cvs.addEventListener('click', e => {
   G.menuIndex = x < W/2 ? 0 : 1;
   startRun();
 });
+
+(function initNameUI(){
+  const modal = document.getElementById('nameModal');
+  const input = document.getElementById('nameInput');
+  const close = () => modal.classList.add('hidden');
+  const doPost = () => { const nick = (input.value.trim().slice(0,12) || 'DRIVER'); setNick(nick); close(); postScore(nick); };
+  const doSkip = () => { close(); openBoard(G.difficulty || 'normal'); };
+  document.getElementById('namePost').addEventListener('click', doPost);
+  document.getElementById('nameSkip').addEventListener('click', doSkip);
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') doPost();
+    else if (e.key === 'Escape') doSkip();
+  });
+})();
 
 (function initSound(){
   let saved = false;

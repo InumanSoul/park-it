@@ -74,16 +74,18 @@ export function updatePlay(dt){
   G.timeLeft -= dt;
   if (G.timeLeft <= 0){
     G.timeLeft = 0;
+    G.lives--;
     G.failMsg = pick(MSG.timeup);
-    G.scene = 'timeup';
+    G.scene = G.lives <= 0 ? 'gameover' : 'timeup';
   }
 }
 
 export function crash(type){
   G.crashes++;
+  G.lives--;
   G.failMsg = pick(MSG[type] || MSG.crash);
   if (type === 'granny') sfx.granny(); else sfx.crash();
-  G.scene = 'crashed';
+  G.scene = G.lives <= 0 ? 'gameover' : 'crashed';
 }
 
 export function calcStars(){

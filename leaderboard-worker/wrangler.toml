@@ -1,0 +1,15 @@
+name = "parkit-leaderboard"
+main = "worker.js"
+compatibility_date = "2026-06-01"
+
+[vars]
+ALLOW_ORIGIN = "https://inumansoul.github.io"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "parkit-leaderboard"
+database_id = "b1b8299d-e370-457d-8232-f37c4f4597a0"
+
+[[kv_namespaces]]
+binding = "RL"
+id = "34a6512cd4f544d99ae69e276efe0d29"

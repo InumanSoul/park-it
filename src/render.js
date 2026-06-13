@@ -1,6 +1,6 @@
 import { ctx, W, H } from './canvas.js';
 import { G, car, slots, obstacles, movers, level } from './state.js';
-import { CAR_LEN, CAR_W, FD, FB, CHARACTERS } from './config.js';
+import { CAR_LEN, CAR_W, FD, FB, CHARACTERS, MAX_LIVES } from './config.js';
 import { IMG, spriteReady, HUD_AVATAR } from './sprites.js';
 
 export function drawLot(){
@@ -275,7 +275,10 @@ export function drawTitle(tSec){
   const pulse = 0.55 + 0.45*Math.sin(tSec*3.2);
   ctx.font = `24px ${FD}`;
   ctx.fillStyle = `rgba(255,176,46,${pulse})`;
-  ctx.fillText('PRESS ENTER TO START', W/2, 560);
+  ctx.fillText('PRESS ENTER TO START', W/2, 554);
+  ctx.font = `700 14px ${FB}`;
+  ctx.fillStyle = '#6b7287';
+  ctx.fillText('PRESS  L  FOR LEADERBOARD', W/2, 582);
 }
 
 export function drawLicense(lx, ly, lw, lh, c){
@@ -380,12 +383,13 @@ export function wrapText(text, x, y, maxW, lh){
 
 // ---------- HUD ----------
 export function syncHUD(){
-  const inGame = G.scene !== 'title' && G.scene !== 'menu';
+  const inGame = G.scene !== 'title' && G.scene !== 'menu' && G.scene !== 'leaderboard';
   document.getElementById('hud').classList.toggle('hidden', !inGame);
   if (!inGame) return;
   document.getElementById('hudLevel').textContent = G.level;
   document.getElementById('hudMode').textContent = G.difficulty ? (G.difficulty==='hard'?'HARD':'NORMAL') : '—';
-  document.getElementById('hudCrashes').textContent = G.crashes;
+  const lives = Math.max(0, G.lives);
+  document.getElementById('hudLives').textContent = '♥'.repeat(lives) + '♡'.repeat(Math.max(0, MAX_LIVES - lives));
   document.getElementById('hudStars').textContent = G.totalStars;
   const avKey = G.difficulty || 'none';
   const av = document.getElementById('hudAvatar');
@@ -393,4 +397,48 @@ export function syncHUD(){
   const t = document.getElementById('timer');
   t.textContent = Math.ceil(G.timeLeft) + 's';
   t.classList.toggle('low', G.scene==='play' && G.timeLeft < 10);
+}
+
+// ---------- Leaderboard ----------
+export function drawLeaderboard(){
+  ctx.fillStyle = '#1f232d';
+  ctx.fillRect(0,0,W,H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#e8eaf0';
+  ctx.font = `34px ${FD}`;
+  ctx.fillText('LEADERBOARD', W/2, 72);
+
+  [['normal','NORMAL'],['hard','HARD']].forEach(([m,label], i) => {
+    ctx.font = `18px ${FD}`;
+    ctx.fillStyle = G.boardMode === m ? '#ffb02e' : '#6b7287';
+    ctx.fillText(label, W/2 + (i===0 ? -90 : 90), 104);
+  });
+
+  const top = 152, rowH = 38, listX = W/2 - 280, listW = 560;
+  if (G.boardLoading || !G.board.length){
+    ctx.fillStyle = '#8a90a0';
+    ctx.font = `700 18px ${FB}`;
+    ctx.fillText(G.boardLoading ? 'Loading…' : 'No scores yet. Be the first!', W/2, top + 40);
+  } else {
+    ctx.textAlign = 'left';
+    G.board.forEach((r, i) => {
+      const y = top + i*rowH;
+      if (i % 2 === 0){ ctx.fillStyle = 'rgba(255,255,255,0.03)'; ctx.fillRect(listX, y-22, listW, rowH-6); }
+      ctx.font = `800 18px ${FB}`;
+      ctx.fillStyle = i < 3 ? '#ffb02e' : '#8a90a0';
+      ctx.fillText(`#${i+1}`, listX + 8, y);
+      ctx.fillStyle = '#e8eaf0';
+      ctx.fillText(String(r.nickname).slice(0,12), listX + 64, y);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#8ad'; ctx.fillText(`LVL ${r.level}`, listX + listW - 96, y);
+      ctx.fillStyle = '#ffb02e'; ctx.fillText(`${r.stars}★`, listX + listW - 8, y);
+      ctx.textAlign = 'left';
+    });
+  }
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#8a90a0';
+  ctx.font = `700 14px ${FB}`;
+  ctx.fillText('ENTER — PLAY   •   TAB — NORMAL / HARD   •   ESC — TITLE', W/2, H - 30);
+  ctx.textAlign = 'left';
 }

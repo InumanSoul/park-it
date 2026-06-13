@@ -19,7 +19,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `movers.js` — spawn/update of grannies, carts, traffic.
 - `simulation.js` — `updatePlay` (the per-frame game logic), `crash`, `calcStars`.
 - `audio.js` — WebAudio synthesis, `sfx`, engine sound, mute.
-- `render.js` — all `draw*` functions, `overlay`, `roundRect`, `syncHUD`.
+- `render.js` — all `draw*` functions, `overlay`, `roundRect`, `syncHUD`, `drawLeaderboard`.
+- `leaderboard.js` — fetch/submit to the leaderboard Worker, nickname in `localStorage`. No-ops gracefully when `LEADERBOARD_URL` is empty.
+
+The public leaderboard backend lives in **`leaderboard-worker/`** — a Cloudflare Worker + D1 (SQLite). It is deployed separately with `wrangler` (see its README) and is **not** part of the Pages build (Pages only serves `dist/`). The game talks to it via `LEADERBOARD_URL` in `config.js`; leave that empty and the leaderboard silently disables (the game still runs).
 
 Everything is inline: SVG sprites are data URIs decoded into `Image` objects, all sound is synthesized at runtime via WebAudio, fonts come from Google Fonts. No assets directory, no network calls at play time.
 
@@ -41,7 +44,10 @@ Deployment is automatic: `.github/workflows/static.yml` runs `npm ci && npm run 
 The whole game is driven by **one global state object `G`** and **one `requestAnimationFrame` loop** (`frame()` at the bottom of `game.js`).
 
 ### Scene state machine
-`G.scene` is one of `title | menu | play | crashed | parked | timeup`. `frame()` switches on it: `title`/`menu` just draw their screen; the other four run the in-game render path, and only `play` advances simulation via `updatePlay(dt)`. Scene transitions happen almost entirely inside the `keydown` handler (Enter/R/Esc) and in `updatePlay` (crash → `crashed`, park success → `parked`, timer → `timeup`).
+`G.scene` is one of `title | menu | play | crashed | parked | timeup | gameover | leaderboard`. `frame()` switches on it: `title`/`menu`/`leaderboard` draw their own screen; the rest run the in-game render path, and only `play` advances simulation via `updatePlay(dt)`. Scene transitions happen in the `keydown` handler (Enter/R/Esc/L/Tab) and in `simulation.js` (crash/timeup/park).
+
+### Lives & the run/leaderboard loop
+A run starts with `G.lives = MAX_LIVES` (3). Each crash **and** each time-up costs a life: with lives left → `crashed`/`timeup` (retry the same level); at zero → `gameover`. Game-over pops the HTML nickname modal (`#nameModal`) and auto-submits `level reached + totalStars + difficulty` to the Worker, then shows the `leaderboard` scene. The board ranks by **level desc, stars desc** and has separate Normal/Hard views (Tab toggles). Because the level only ever increases (you advance by parking, retry on fail), `G.level` at game-over *is* the highest level reached. The nickname modal is real DOM over the canvas — while it's open the global `keydown` handler early-returns so the form owns the keyboard.
 
 ### Frame budget & time
 `dt` is clamped to `1/30` so a stutter can't tunnel the car through a wall. All motion is `dt`-scaled; `tSec = now/1000` drives cosmetic pulsing/blinking.

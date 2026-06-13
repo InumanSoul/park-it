@@ -64,3 +64,6 @@ export const CAR_LEN = 84, CAR_W = 44, WHEELBASE = 60;
 export const ACCEL = 195, REV_ACCEL = 140, MAX_FWD = 215, MAX_REV = 120, DRAG = 2.4;
 
 export const PALETTE = ['#4a7fd4','#56b06b','#c4584f','#b08a3e','#7a5fb5','#3e9da8','#8c6d5a'];
+
+export const MAX_LIVES = 3;
+export const LEADERBOARD_URL = 'https://parkit-leaderboard.inumansoul.workers.dev';
